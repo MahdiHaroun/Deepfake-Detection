@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake Detector</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7fa;
+            color: #333;
+        }
+        .container {
+            width: 80%;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 5px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #fafafa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #3498db;
+            background-color: #f0f7ff;
+        }
+        .upload-area.highlight {
+            border-color: #3498db;
+            background-color: #e6f2ff;
+        }
+        #video-preview {
+            max-width: 100%;
+            margin-top: 20px;
+            border-radius: 5px;
+            display: none;
+        }
+        .button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            display: block;
+            margin: 20px auto;
+            width: 200px;
+        }
+        .button:hover {
+            background-color: #2980b9;
+        }
+        .button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .result-container {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .result-real {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .result-fake {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error-message {
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 20px;
+            display: none;
+        }
+        .file-requirements {
+            font-size: 14px;
+            color: #6c757d;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Deepfake Detector</h1>
+        
+        <div class="upload-area" id="drop-area">
+            <p>Drag & drop your video here or click to select</p>
+            <p class="file-requirements">Max file size: 16MB. Supported formats: MP4, AVI, MOV</p>
+            <input type="file" id="file-input" accept="video/*" style="display: none;">
+        </div>
+        
+        <video id="video-preview" controls></video>
+        
+        <button id="analyze-btn" class="button" disabled>Analyze Video</button>
+        
+        <div class="loader" id="loader"></div>
+        
+        <div class="error-message" id="error-message"></div>
+        
+        <div class="result-container" id="result-container">
+            <h2 id="result-title"></h2>
+            <p id="result-description"></p>
+            <p>Confidence: <span id="confidence-level"></span>%</p>
+        </div>
+    </div>
+
+    <script>
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const videoPreview = document.getElementById('video-preview');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const loader = document.getElementById('loader');
+        const resultContainer = document.getElementById('result-container');
+        const resultTitle = document.getElementById('result-title');
+        const resultDescription = document.getElementById('result-description');
+        const confidenceLevel = document.getElementById('confidence-level');
+        const errorMessage = document.getElementById('error-message');
+        
+        let selectedFile = null;
+        
+        // Handle drag and drop events
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            dropArea.classList.add('highlight');
+        }
+        
+        function unhighlight() {
+            dropArea.classList.remove('highlight');
+        }
+        
+        // Handle file drop
+        dropArea.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length) {
+                handleFiles(files);
+            }
+        }
+        
+        // Handle file selection via click
+        dropArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        fileInput.addEventListener('change', function() {
+            if (this.files.length) {
+                handleFiles(this.files);
+            }
+        });
+        
+        function handleFiles(files) {
+            const file = files[0];
+            
+            // Validate file type and size
+            if (!file.type.startsWith('video/')) {
+                showError('Please upload a video file.');
+                return;
+            }
+            
+            if (file.size > 16 * 1024 * 1024) {
+                showError('File size exceeds 16MB limit.');
+                return;
+            }
+            
+            selectedFile = file;
+            
+            // Display video preview
+            videoPreview.src = URL.createObjectURL(file);
+            videoPreview.style.display = 'block';
+            
+            // Enable analyze button
+            analyzeBtn.disabled = false;
+            
+            // Clear previous results and errors
+            hideError();
+            resultContainer.style.display = 'none';
+        }
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            analyzeBtn.disabled = true;
+            videoPreview.style.display = 'none';
+        }
+        
+        function hideError() {
+            errorMessage.style.display = 'none';
+        }
+        
+        // Handle analyze button click
+        analyzeBtn.addEventListener('click', function() {
+            if (!selectedFile) return;
+            
+            // Show loading indicator
+            loader.style.display = 'block';
+            analyzeBtn.disabled = true;
+            resultContainer.style.display = 'none';
+            hideError();
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('video', selectedFile);
+            
+            // Send request to backend
+            fetch('/detect', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Server error. Please try again.');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Hide loader
+                loader.style.display = 'none';
+                
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                // Display result
+                resultContainer.style.display = 'block';
+                
+                if (data.is_deepfake) {
+                    resultContainer.className = 'result-container result-fake';
+                    resultTitle.textContent = 'Deepfake Detected';
+                    resultDescription.textContent = 'This video appears to be artificially manipulated.';
+                } else {
+                    resultContainer.className = 'result-container result-real';
+                    resultTitle.textContent = 'Authentic Video';
+                    resultDescription.textContent = 'No manipulation detected in this video.';
+                }
+                
+                confidenceLevel.textContent = data.confidence;
+                analyzeBtn.disabled = false;
+            })
+            .catch(error => {
+                loader.style.display = 'none';
+                showError(error.message || 'An error occurred. Please try again.');
+                analyzeBtn.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>

@@ -25,7 +25,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
+final_inceptionresnetv2_deepfake_model_99_new.keras
+final_inceptionresnetv2_deepfake_model_99_new.h5
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
@@ -172,3 +173,9 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+final_inceptionresnetv2_deepfake_model_99_new.zip
+.gitignore
+.gitignore
+final_inceptionresnetv2_deepfake_model_99_new.h5
+final_inceptionresnetv2_deepfake_model_99_new.keras
+final_inceptionresnetv2_deepfake_model_99_new.h5

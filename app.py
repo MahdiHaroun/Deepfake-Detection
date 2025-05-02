@@ -1,32 +1,44 @@
-import os
-import cv2
-import numpy as np
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
-import tensorflow as tf
 from PIL import Image
-import io
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image  # Add this line
+import os
 import tempfile
+import io
+import cv2
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # limit uploads to 16MB
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()  # Use temp directory
 
-# Load CNN model - dummy model for now, replace with your actual model
+# Load CNN model - using the same approach as in the notebook
 def load_model():
     try:
-        # Replace this with your actual model loading code
-        model = tf.keras.models.Sequential([
-            tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(224, 224, 3)),
-            tf.keras.layers.MaxPooling2D(2, 2),
-            tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dense(1, activation='sigmoid')
-        ])  
-        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        # In production, you would load weights here
-        # model.load_weights('path_to_your_weights.h5')
+        model_path = 'final_inceptionresnetv2_deepfake_model_99_new/final_inceptionresnetv2_deepfake_model_99_new.keras'
+        
+        # Check if model file exists
+        if not os.path.exists(model_path):
+            print(f"ERROR: Model file not found at {model_path}")
+            print(f"Current working directory: {os.getcwd()}")
+            return None
+            
+        # Load the model exactly as in notebook
+        model = tf.keras.models.load_model(model_path)
+        
+        # Verify model loaded correctly
         print("Model loaded successfully")
+        print(f"Model input shape: {model.input_shape}")
+        print(f"Model output shape: {model.output_shape}")
+        
+        # Test prediction with random data
+        test_input = np.random.random((1, 224, 224, 3))
+        test_output = model.predict(test_input)
+        print(f"Test prediction shape: {test_output.shape}")
+        print(f"Test prediction values: {test_output}")
+        
         return model
     except Exception as e:
         print(f"Error loading model: {e}")
@@ -58,22 +70,24 @@ def extract_frames(video_path, num_frames=10):
     video.release()
     return frames
 
-def compress_image(frame, quality=85):
-    """Compress image using PIL while maintaining quality"""
-    # Convert numpy array to PIL Image
-    img = Image.fromarray(frame)
+# Replace the existing preprocess_frame function with this:
+def preprocess_frame(frame):
+    """Preprocess a frame exactly as in the notebook"""
+    # Convert to PIL Image format first
+    img_pil = Image.fromarray(frame)
     
-    # Resize to standard input size for the model (224x224 is common)
-    img = img.resize((224, 224), Image.LANCZOS)
+    # Save as temporary file to use image.load_img
+    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], 'temp_frame.jpg')
+    img_pil.save(temp_path)
     
-    # Compress using a BytesIO buffer
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=quality, optimize=True)
+    # Use the exact same preprocessing as in the notebook
+    img = image.load_img(temp_path, target_size=(224, 224))
+    img_array = image.img_to_array(img) / 255.0
     
-    # Convert back to numpy array for model input
-    buffer.seek(0)
-    compressed_img = Image.open(buffer)
-    return np.array(compressed_img)
+    # Remove temp file
+    os.remove(temp_path)
+    
+    return img_array
 
 def predict_deepfake(frames):
     """Process frames through model and return prediction"""
@@ -83,28 +97,44 @@ def predict_deepfake(frames):
     # Preprocess frames for the model
     processed_frames = []
     for frame in frames:
-        # Compress and normalize
-        compressed = compress_image(frame)
-        # Normalize pixel values to [0,1]
-        normalized = compressed / 255.0
-        processed_frames.append(normalized)
+        processed = preprocess_frame(frame)
+        processed_frames.append(processed)
     
     # Convert to numpy array
     batch = np.array(processed_frames)
     
+    # Add explicit model verification
+    print(f"Model input shape: {batch.shape}")
+    print(f"Model input range: min={np.min(batch)}, max={np.max(batch)}")
+    
     # Get predictions for all frames
     predictions = model.predict(batch)
+    print(f"Raw predictions shape: {predictions.shape}")
+    print(f"Raw predictions values: {predictions}")
+    
+    # Flatten predictions if needed
+    if predictions.ndim > 1 and predictions.shape[1] == 1:
+        predictions = predictions.flatten()
+    
+    print(f"Flattened predictions: {predictions}")    
+    
+    # REVERSED CLASSIFICATION THRESHOLD - FIX THE LOGIC
+    frame_results = ['Fake' if p > 0.5 else 'Real' for p in predictions]  # Changed < to >
+    print(f"Frame-by-frame results: {frame_results}")
     
     # Average the predictions across frames
-    avg_prediction = np.mean(predictions)
+    avg_prediction = float(np.mean(predictions))
+    print(f"Average prediction: {avg_prediction}")
     
-    # Threshold for classification
-    is_deepfake = bool(avg_prediction > 0.5)
-    confidence = float(avg_prediction) if is_deepfake else float(1.0 - avg_prediction)
+    # REVERSED CLASSIFICATION THRESHOLD - FIX THE LOGIC
+    is_deepfake = bool(avg_prediction > 0.5)  # Changed < to >
+    confidence = avg_prediction if is_deepfake else (1.0 - avg_prediction)  # Adjusted confidence calculation
     
     return {
         "is_deepfake": is_deepfake,
-        "confidence": round(confidence * 100, 2)
+        "result": "Fake" if is_deepfake else "Real",
+        "confidence": round(confidence * 100, 2),
+        "frame_results": frame_results
     }
 
 @app.route('/')
@@ -118,7 +148,7 @@ def detect_deepfake():
     
     video_file = request.files['video']
     if video_file.filename == '':
-        return jsonify({"error": "No video selected"}), 400
+        return jsonify({"error": "Empty video file name"}), 400
     
     try:
         # Save uploaded file temporarily
@@ -130,13 +160,12 @@ def detect_deepfake():
         frames = extract_frames(filepath, num_frames=10)
         
         if not frames:
-            os.remove(filepath)
             return jsonify({"error": "Could not extract frames from video"}), 400
         
         # Process frames through the model
         result = predict_deepfake(frames)
         
-        # Clean up
+        # Clean up temp file
         os.remove(filepath)
         
         return jsonify(result)

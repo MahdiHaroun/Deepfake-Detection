@@ -120,17 +120,17 @@
 </head>
 <body>
     <div class="container">
-        <h1>Deepfake Detector</h1>
+        <h1>Deepfake Photo Detector</h1>
         
         <div class="upload-area" id="drop-area">
-            <p>Drag & drop your video here or click to select</p>
-            <p class="file-requirements">Max file size: 16MB. Supported formats: MP4, AVI, MOV</p>
-            <input type="file" id="file-input" accept="video/*" style="display: none;">
+            <p>Drag & drop your photo here or click to select</p>
+            <p class="file-requirements">Max file size: 16MB. Supported formats: JPG, PNG</p>
+            <input type="file" id="file-input" accept="image/*" style="display: none;">
         </div>
         
-        <video id="video-preview" controls></video>
+        <img id="image-preview" style="max-width: 100%; margin-top: 20px; border-radius: 5px; display: none;">
         
-        <button id="analyze-btn" class="button" disabled>Analyze Video</button>
+        <button id="analyze-btn" class="button" disabled>Analyze Photo</button>
         
         <div class="loader" id="loader"></div>
         
@@ -146,7 +146,7 @@
     <script>
         const dropArea = document.getElementById('drop-area');
         const fileInput = document.getElementById('file-input');
-        const videoPreview = document.getElementById('video-preview');
+        const imagePreview = document.getElementById('image-preview');
         const analyzeBtn = document.getElementById('analyze-btn');
         const loader = document.getElementById('loader');
         const resultContainer = document.getElementById('result-container');
@@ -210,8 +210,8 @@
             const file = files[0];
             
             // Validate file type and size
-            if (!file.type.startsWith('video/')) {
-                showError('Please upload a video file.');
+            if (!file.type.startsWith('image/')) {
+                showError('Please upload a photo file.');
                 return;
             }
             
@@ -222,9 +222,9 @@
             
             selectedFile = file;
             
-            // Display video preview
-            videoPreview.src = URL.createObjectURL(file);
-            videoPreview.style.display = 'block';
+            // Display image preview
+            imagePreview.src = URL.createObjectURL(file);
+            imagePreview.style.display = 'block';
             
             // Enable analyze button
             analyzeBtn.disabled = false;
@@ -238,7 +238,7 @@
             errorMessage.textContent = message;
             errorMessage.style.display = 'block';
             analyzeBtn.disabled = true;
-            videoPreview.style.display = 'none';
+            imagePreview.style.display = 'none';
         }
         
         function hideError() {
@@ -257,7 +257,7 @@
             
             // Create form data
             const formData = new FormData();
-            formData.append('video', selectedFile);
+            formData.append('photo', selectedFile);
             
             // Send request to backend
             fetch('/detect', {
@@ -285,11 +285,11 @@
                 if (data.is_deepfake) {
                     resultContainer.className = 'result-container result-fake';
                     resultTitle.textContent = 'Deepfake Detected';
-                    resultDescription.textContent = 'This video appears to be artificially manipulated.';
+                    resultDescription.textContent = 'This photo appears to be artificially manipulated.';
                 } else {
                     resultContainer.className = 'result-container result-real';
-                    resultTitle.textContent = 'Authentic Video';
-                    resultDescription.textContent = 'No manipulation detected in this video.';
+                    resultTitle.textContent = 'Authentic Photo';
+                    resultDescription.textContent = 'No manipulation detected in this photo.';
                 }
                 
                 confidenceLevel.textContent = data.confidence;

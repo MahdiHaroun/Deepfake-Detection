@@ -1,110 +1,93 @@
-import os
-import cv2
-import numpy as np
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
+import numpy as np
 import tensorflow as tf
-from PIL import Image
-import io
+import os
 import tempfile
+from PIL import Image
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # limit uploads to 16MB
-app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()  # Use temp directory
+app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 
-# Load CNN model - dummy model for now, replace with your actual model
-def load_model():
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+# Load model exactly like in the notebook
+def load_model_from_notebook():
     try:
-        # Replace this with your actual model loading code
-        model = tf.keras.models.Sequential([
-            tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(224, 224, 3)),
-            tf.keras.layers.MaxPooling2D(2, 2),
-            tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dense(1, activation='sigmoid')
-        ])  
-        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        # In production, you would load weights here
-        # model.load_weights('path_to_your_weights.h5')
+        model_path = 'final_inceptionresnetv2_deepfake_model_99_new/final_inceptionresnetv2_deepfake_model_99_new.keras'
+        
+        if not os.path.exists(model_path):
+            print(f"ERROR: Model file not found at {model_path}")
+            print(f"Current working directory: {os.getcwd()}")
+            return None
+            
+        model = tf.keras.models.load_model(model_path)
+        
         print("Model loaded successfully")
+        print(f"Model input shape: {model.input_shape}")
+        print(f"Model output shape: {model.output_shape}")
+        
+        # Test prediction
+        test_input = np.random.random((1, 224, 224, 3))
+        test_output = model.predict(test_input)
+        print(f"Test prediction shape: {test_output.shape}")
+        print(f"Test prediction values: {test_output}")
+        
         return model
     except Exception as e:
         print(f"Error loading model: {e}")
         return None
 
-# Global variable for model
-model = load_model()
+# Load model once at startup
+model = load_model_from_notebook()
 
-def extract_frames(video_path, num_frames=10):
-    """Extract evenly spaced frames from video"""
-    frames = []
-    video = cv2.VideoCapture(video_path)
-    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-    
-    if total_frames <= 0:
-        return frames
-    
-    # Calculate frame indices to extract
-    indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
-    
-    for i in indices:
-        video.set(cv2.CAP_PROP_POS_FRAMES, i)
-        success, frame = video.read()
-        if success:
-            # Convert from BGR to RGB
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frames.append(frame)
-    
-    video.release()
-    return frames
+def preprocess_image(image_path):
+    """Process a single image exactly as in the notebook"""
+    try:
+        # Load and resize image
+        img = tf.keras.utils.load_img(image_path, target_size=(224, 224))
+        
+        # Convert to array and normalize
+        img_array = tf.keras.utils.img_to_array(img)
+        img_array = tf.expand_dims(img_array, 0)  # Create batch dimension
+        img_array = img_array / 255.0  # Normalize
+        
+        return img_array
+    except Exception as e:
+        print(f"Error processing image: {e}")
+        return None
 
-def compress_image(frame, quality=85):
-    """Compress image using PIL while maintaining quality"""
-    # Convert numpy array to PIL Image
-    img = Image.fromarray(frame)
-    
-    # Resize to standard input size for the model (224x224 is common)
-    img = img.resize((224, 224), Image.LANCZOS)
-    
-    # Compress using a BytesIO buffer
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=quality, optimize=True)
-    
-    # Convert back to numpy array for model input
-    buffer.seek(0)
-    compressed_img = Image.open(buffer)
-    return np.array(compressed_img)
-
-def predict_deepfake(frames):
-    """Process frames through model and return prediction"""
+def predict_image(image_path):
+    """Predict if an image is real or fake"""
     if not model:
         return {"error": "Model not loaded"}, 500
     
-    # Preprocess frames for the model
-    processed_frames = []
-    for frame in frames:
-        # Compress and normalize
-        compressed = compress_image(frame)
-        # Normalize pixel values to [0,1]
-        normalized = compressed / 255.0
-        processed_frames.append(normalized)
+    # Preprocess the image
+    img_array = preprocess_image(image_path)
+    if img_array is None:
+        return {"error": "Failed to process image"}, 400
     
-    # Convert to numpy array
-    batch = np.array(processed_frames)
+    # Get prediction
+    predictions = model.predict(img_array)
+    prediction_value = float(predictions[0][0])
     
-    # Get predictions for all frames
-    predictions = model.predict(batch)
+    print(f"Raw prediction: {prediction_value}")
     
-    # Average the predictions across frames
-    avg_prediction = np.mean(predictions)
+    # Classify using same threshold as notebook
+    label = "Real" if prediction_value >= 0.5 else "Fake"
+    is_deepfake = label == "Fake"
     
-    # Threshold for classification
-    is_deepfake = bool(avg_prediction > 0.5)
-    confidence = float(avg_prediction) if is_deepfake else float(1.0 - avg_prediction)
+    # Calculate confidence
+    confidence = prediction_value if label == "Real" else (1.0 - prediction_value)
     
     return {
         "is_deepfake": is_deepfake,
-        "confidence": round(confidence * 100, 2)
+        "result": label,
+        "confidence": round(confidence * 100, 2),
+        "raw_prediction": round(prediction_value, 4)
     }
 
 @app.route('/')
@@ -113,35 +96,32 @@ def index():
 
 @app.route('/detect', methods=['POST'])
 def detect_deepfake():
-    if 'video' not in request.files:
-        return jsonify({"error": "No video file provided"}), 400
+    if 'photo' not in request.files:
+        return jsonify({"error": "No photo file provided"}), 400
     
-    video_file = request.files['video']
-    if video_file.filename == '':
-        return jsonify({"error": "No video selected"}), 400
+    photo_file = request.files['photo']
+    if photo_file.filename == '':
+        return jsonify({"error": "Empty photo file name"}), 400
+    
+    if not allowed_file(photo_file.filename):
+        return jsonify({"error": "File type not allowed. Please upload a JPG or PNG image"}), 400
     
     try:
         # Save uploaded file temporarily
-        filename = secure_filename(video_file.filename)
+        filename = secure_filename(photo_file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        video_file.save(filepath)
+        photo_file.save(filepath)
         
-        # Extract frames
-        frames = extract_frames(filepath, num_frames=10)
+        # Process the image
+        result = predict_image(filepath)
         
-        if not frames:
-            os.remove(filepath)
-            return jsonify({"error": "Could not extract frames from video"}), 400
-        
-        # Process frames through the model
-        result = predict_deepfake(frames)
-        
-        # Clean up
+        # Clean up temp file
         os.remove(filepath)
         
         return jsonify(result)
         
     except Exception as e:
+        print(f"Error processing photo: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':

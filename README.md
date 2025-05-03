@@ -82,9 +82,9 @@ All experiments ran on an **NVIDIA A100 Tensor Core GPU** for high-speed trainin
 
 ## 🧪 Sample Results
 
-| Fake Detected  | Authentic      |
-| -------------- | -------------- |
-| ![Fake](2.png) | ![Real](1.png) |
+| Fake Detected  | Authentic      | Multiple Fake-Real Classification |
+| -------------- | -------------- | --------------------------------- |
+| ![Fake](2.png) | ![Real](1.png) | ![Real-Fake](3.png)               |
 
 ---
 

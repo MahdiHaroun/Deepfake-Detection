@@ -17,7 +17,7 @@ def allowed_file(filename):
 # Load model exactly like in the notebook
 def load_model_from_notebook():
     try:
-        model_path = 'final_inceptionresnetv2_deepfake_model_99_new/final_inceptionresnetv2_deepfake_model_99_new.keras'
+        model_path = r'C:\Users\mahdi\Desktop\Deepfake-Detection\final_inceptionresnetv2_deepfake_model_99_new.keras'
         
         if not os.path.exists(model_path):
             print(f"ERROR: Model file not found at {model_path}")
